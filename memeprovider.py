@@ -10,6 +10,7 @@ from random import randrange
 from math import ceil, floor
 import os.path
 import subprocess
+import json
 import pandas as pd
 
 from PIL import Image
@@ -55,6 +56,28 @@ class Meme():
         result = self.data.iloc[self.data_index, 0]
         self.data_index += 1
         return result
+    
+    def get_starting_with(self, starting_text):
+        '''
+        Вернуть следующий мем
+        '''
+        path_to_params_dict = self.path_to_model + 'params_dict.json'
+        with open(path_to_params_dict, 'r') as f:
+            params_dict = json.load(f)
+        params_dict['prefix'] = params_dict['prefix'] + starting_text
+        with open('./temp_params_dict.json', 'w') as f:
+            json.dump(params_dict, f)
+        cmd = ['python', 
+               'inference.py',
+               '--path-to-model-dir=' + self.path_to_model,
+               '--path-to-params-dict=./temp_params_dict.json',
+               '--output-path=./temp_output.csv',
+               '--n-samples=1',
+               '--batch-size=1'
+               ]
+        subprocess.Popen(cmd).wait() 
+        data = pd.read_csv('./temp_output.csv', header = 0)
+        return data.iloc[0, 0]
 
     def request_new_memes(self):
         '''
@@ -133,8 +156,11 @@ def split_text_ex(lengths, line_count, max_line_count, min_line_count):
             best_index = i
     return None if best_index == -1 else results[best_index]                   
             
-# разбить текст на n макcимально близких по длине строк
+
 def split_text(text, line_count):
+    '''
+    Разбить текст на n макcимально близких по длине строк
+    '''
     words = text.split(' ')
     lengths = []
     i = 0
@@ -158,8 +184,11 @@ def split_text(text, line_count):
         text_lines.append(text_line)
     return text_lines, max_len
 
-# вычислить многострочную верстку текста       
+     
 def get_text_layout(text, text_box, max_font_size, min_font_size, font_cell_ratio):
+    '''
+    Вычислить многострочную верстку текста
+    '''
     dx = text_box[2] - text_box[0]
     dy = text_box[3] - text_box[1]
     assert dx > 0 and dy > 0
@@ -196,9 +225,15 @@ class MemeProvider():
         assert len(self.memes) > 0
         
     def split_into_boxes(self, text):
+        '''
+        Разбить текст мема на фрагменты для каждого box'а
+        '''
         return text.split('|')
 
     def add_text_to_template(self, path_to_img, texts, text_boxes, font_path, max_font_size, min_font_size, font_cell_ratio):
+        '''
+        Сгенерировать изображение из шаблона и текста
+        '''
         if len(texts) > len(text_boxes):
             return None
         img = Image.open(path_to_img)
@@ -221,6 +256,9 @@ class MemeProvider():
         return open('./temp.jpg', 'rb')
     
     def get_next(self):
+        '''
+        Получить следующий мем
+        '''
         with self.lock:
             meme = self.memes[randrange(len(self.memes))]
             text = self.split_into_boxes(meme.get_next())
@@ -228,6 +266,21 @@ class MemeProvider():
                                             meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
             while not img:
                 text = self.split_into_boxes(meme.get_next())
+                img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
+                                                meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
+            return img
+        
+    def get_starting_with(self, starting_text):
+        '''
+        Получить один мем на основе начала его текста
+        '''
+        with self.lock:
+            meme = self.memes[randrange(len(self.memes))]
+            text = self.split_into_boxes(meme.get_starting_with(starting_text))
+            img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
+                                            meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
+            while not img:
+                text = self.split_into_boxes(meme.get_starting_with(starting_text))
                 img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
                                                 meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
             return img
