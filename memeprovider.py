@@ -9,29 +9,13 @@ import threading
 from random import randrange
 from math import ceil, floor
 import os.path
+import subprocess
+import pandas as pd
 
 from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
 
-"""
-memes_config = [
-    {
-        'text_path': './disaster_girl/output.csv',
-        'path_to_model': './disaster_girl/model',
-        'template_path': './disaster_girl/template.jpg',
-        'text_boxes': [
-                (15, 15, 475, 115),
-                (15, 270, 475, 370)
-            ],
-        'min_font_size': 30,
-        'max_font_size': 70,
-        'font_path': './UbuntuMono-B.ttf',
-        'font_cell_ratio': 0.5
-	}
-]
-
-"""
 class Meme():
     def __init__(self, config):
         self.text_path = config['text_path']
@@ -41,37 +25,58 @@ class Meme():
         self.max_font_size = config['max_font_size']
         self.font_path = config['font_path']
         self.font_cell_ratio = config['font_cell_ratio']
+        self.path_to_model = config['path_to_model']
+        self.n_samples = config['n_samples']
+        self.batch_size = config['batch_size']
         
-        self.file = None
-
+        self.data = None
+        self.data_index = 0
+        self.data_size = -1
         self.try_start_reading()
         
     def try_start_reading(self):
+        '''
+        Начать чтение из файла
+        '''
         if not os.path.isfile(self.text_path):
             self.request_new_memes()
-        
-        self.file = open(self.text_path, 'r')
-        
+        else:
+            self.data = pd.read_csv(self.text_path, header = 0)
+            self.data_index = 0
+            self.data_size = len(self.data.index)
+
     def get_next(self):
-        assert self.file is not None
-        line = self.file.readline()
-        if not line:
-            self.file.close()
+        '''
+        Вернуть следующий мем
+        '''
+        assert self.data is not None
+        if self.data_index >= self.data_size:
             self.request_new_memes()
-            line = self.file.readline()
-            assert line
-        return line
+        result = self.data.iloc[self.data_index, 0]
+        self.data_index += 1
+        return result
 
     def request_new_memes(self):
-        raise Exception('Not implemented')
-        
-# TODO вынести в конфиг
-"""
-Путь к шрифту специфичен для дистрибутива
-"""
+        '''
+        Запросить у модели следующий батч мемов
+        '''
+        cmd = ['python', 
+               'inference.py',
+               '--path-to-model-dir=' + self.path_to_model,
+               '--path-to-params-dict=' + self.path_to_model + 'params_dict.json',
+               '--output-path=' + self.text_path,
+               '--n-samples=' + str(self.n_samples),
+               '--batch-size=' + str(self.batch_size)
+               ]
+        subprocess.Popen(cmd).wait() 
+        self.data = pd.read_csv(self.text_path, header = 0)
+        self.data_index = 0
+        self.data_size = len(self.data.index)
 
-# резместить текст в середине box'а
 def fit_text_to_box(text, text_box, font_size, font_cell_ratio):
+    '''
+    Разместить текст в середине box'а
+    '''
     dx = text_box[2] - text_box[0]
     dy = text_box[3] - text_box[1]
     text_dx = ceil(font_size * font_cell_ratio * len(text))
@@ -81,8 +86,10 @@ def fit_text_to_box(text, text_box, font_size, font_cell_ratio):
     y = floor(text_box[1] + dy / 2 - text_dy / 2)
     return (text, x, y, font_size)
 
-# рекурсивная процедура для split_text
 def split_text_ex(lengths, line_count, max_line_count, min_line_count):
+    '''
+    Рекурсивная процедура для split_text
+    '''
     assert line_count > 0
     results = []
     if len(lengths) == 0:
@@ -146,12 +153,9 @@ def split_text(text, line_count):
         for i in range(1, len(line)):
             text_line += ' ' + words[line[i][0]]
             line_len += line[i][1]
-        print(line_len)
         if max_len < line_len:
             max_len = line_len
         text_lines.append(text_line)
-    print(text_lines)
-    print(max_len)
     return text_lines, max_len
 
 # вычислить многострочную верстку текста       

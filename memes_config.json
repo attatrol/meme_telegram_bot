@@ -1,7 +1,9 @@
 [
     {
         "text_path":"./disaster_girl/output.csv",
-        "path_to_model":"./disaster_girl/model",
+        "path_to_model":"./disaster_girl/model/",
+        "n_samples":100,
+        "batch_size":20,
         "template_path":"./disaster_girl/template.jpg",
         "text_boxes":[
             [
