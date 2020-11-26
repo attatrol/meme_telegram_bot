@@ -141,7 +141,7 @@ def generate_meme_by_starting(update: Update, context: CallbackContext) -> None:
         chat_id = update.message.chat_id
         img = meme_provider.get_starting_with(text.upper())
         if img is None:
-            context.bot.send_message(chat_id, 'Не удалось сгенерировать мем по тексту"{0}"'.format(text)) 
+            context.bot.send_message(chat_id, 'Сервер временно недоступен. Попробуйте позже') 
         else:
             context.bot.send_photo(chat_id, img)
     return BOT_STATE_INITIAL
