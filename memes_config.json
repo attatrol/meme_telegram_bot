@@ -36,5 +36,24 @@
         "max_font_size":70,
         "font_path":"./UbuntuMono-B.ttf",
         "font_cell_ratio":0.5
+    },
+    {
+        "text_path":"./waiting_skeleton/output.csv",
+        "path_to_model":"./waiting_skeleton/model/",
+        "n_samples":100,
+        "batch_size":20,
+        "template_path":"./waiting_skeleton/template.jpg",
+        "text_boxes":[
+            [
+                15, 5, 268, 120
+            ],
+            [
+                15, 283, 268, 398
+            ]
+        ],
+        "min_font_size":30,
+        "max_font_size":70,
+        "font_path":"./UbuntuMono-B.ttf",
+        "font_cell_ratio":0.5
     }
 ]
