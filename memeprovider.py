@@ -205,6 +205,8 @@ def get_text_layout(text, text_box, max_font_size, min_font_size, font_cell_rati
         max_lines_in_box = floor(dy / min_font_size)
         for line_count in range(2, max_lines_in_box):
             split, max_length = split_text(text, line_count)
+            if split is None:
+                return False, []
             font_size = floor(dx / (max_length * font_cell_ratio))
             if font_size > min_font_size:
                 if font_size > max_font_size:
@@ -223,6 +225,7 @@ class MemeProvider():
         for meme_config in config:
             self.memes.append(Meme(meme_config))
         assert len(self.memes) > 0
+        max_starting_text_length = 50
         
     def split_into_boxes(self, text):
         '''

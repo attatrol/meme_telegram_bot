@@ -111,12 +111,27 @@ def on_enter_meme_starting_pressed(update: Update, context: CallbackContext) -> 
     update.message.reply_text('Введите начало мема:')
     return BOT_STATE_TYPING_REPLY
 
+
+def is_english(text):
+    try:
+        text.encode(encoding='utf-8').decode('ascii')
+    except UnicodeDecodeError:
+        return False
+    else:
+        return True
+
+
 def generate_meme_by_starting(update: Update, context: CallbackContext) -> None:
     text = update.message.text
-    chat_id = update.message.chat_id
     meme_provider = context.dispatcher.user_data['meme_provider']
-    img = meme_provider.get_starting_with(text)
-    context.bot.send_photo(chat_id, img)
+    if len(text) < meme_provider.max_starting_text_length:
+        update.message.reply_text('Ограничение на длину начального текста мема ' + str(meme_provider.max_starting_text_length))
+    elif not is_english(text):
+        update.message.reply_text('Допустим только английский текст')
+    else:
+        chat_id = update.message.chat_id
+        img = meme_provider.get_starting_with(text.upper())
+        context.bot.send_photo(chat_id, img)
     return BOT_STATE_INITIAL
 
 
