@@ -372,9 +372,8 @@ class MemeProvider():
         while MEME_REQUEST_TIMEOUT > time.time() - start_time:
             meme = self.memes[randrange(len(self.memes))]
             text = meme.get_next()
-            if text is not None:
+            if text is not None or len(text) > 0:
                 text = self.split_into_boxes(text)
-            if text is not None:
                 img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
                                                 meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
                 if img is not None:
@@ -392,7 +391,7 @@ class MemeProvider():
         token, temp_params_dict_path, temp_output_path = meme.get_user_text_meme_process(starting_text)
         while MEME_REQUEST_TIMEOUT > time.time() - start_time:
             text = meme.get_user_text_meme(token, temp_params_dict_path, temp_output_path)
-            if text is not None:
+            if text is not None or len(text) > 0:
                 text = self.split_into_boxes(text)
                 return self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
                                             meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
