@@ -44,18 +44,19 @@ class Meme():
         self.data = None
         self.data_index = 0
         self.data_size = -1
-        self.try_start_reading()
         
         self.owner = owner
         self.start_inference_data_offset = START_INFERENCE_DATA_OFFSET
         self.inference_subprocess_token = None
+        
+        self.try_start_reading()
         
     def try_start_reading(self):
         '''
         Начать чтение из файла
         '''
         if not os.path.isfile(self.text_path):
-            self.request_new_memes()
+            self.request_new_memes(False)
         else:
             self.data = pd.read_csv(self.text_path, header = 0)
             self.data_index = 0
@@ -65,8 +66,7 @@ class Meme():
         '''
         Вернуть следующий мем
         '''
-        assert self.data is not None
-        if self.data_index >= self.data_size and not self.request_new_memes(True):
+        if (self.data is None or self.data_index >= self.data_size) and not self.request_new_memes(True):
             return None
         if self.data_index + self.start_inference_data_offset >= self.data_size:
             self.request_new_memes(False)
@@ -260,20 +260,20 @@ def get_text_layout(text, text_box, max_font_size, min_font_size, font_cell_rati
     
 class MemeProvider():
     def __init__(self, config):
-        self.lock = threading.Lock()
-        self.memes = []
-        for meme_config in config:
-            self.memes.append(Meme(meme_config, self))
-        assert len(self.memes) > 0
-        
         self.max_starting_text_length = USER_STARTING_TEXT_MAX_LENGTH
-
+        
+        self.lock = threading.Lock()
         self.subprocess_counter = 0
         self.subprocesses = {}
         self.subprocesses_queue = []
         
         self.running = True
         self.run_subprocesses()
+    
+        self.memes = []
+        for meme_config in config:
+            self.memes.append(Meme(meme_config, self))
+        assert len(self.memes) > 0
         
     def split_into_boxes(self, text):
         '''
