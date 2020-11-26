@@ -8,17 +8,28 @@ Created on Tue Nov 17 15:49:21 2020
 import threading
 from random import randrange
 from math import ceil, floor
+import os
 import os.path
 import subprocess
 import json
 import pandas as pd
+import time
 
 from PIL import Image
 from PIL import ImageFont
 from PIL import ImageDraw
 
+# при каком остатке в коллекции мемов начинать инференс
+START_INFERENCE_DATA_OFFSET = 25
+# максимальная длина пользовательского текста начала мема
+USER_STARTING_TEXT_MAX_LENGTH = 50
+# число попыток получить мем на один запрос
+MAX_MEME_GET_TRIES = 3
+# максимальное время на реквест мема, секунд
+MEME_REQUEST_TIMEOUT = 18
+
 class Meme():
-    def __init__(self, config):
+    def __init__(self, config, owner):
         self.text_path = config['text_path']
         self.template_path = config['template_path']
         self.text_boxes = config['text_boxes']
@@ -34,6 +45,10 @@ class Meme():
         self.data_index = 0
         self.data_size = -1
         self.try_start_reading()
+        
+        self.owner = owner
+        self.start_inference_data_offset = START_INFERENCE_DATA_OFFSET
+        self.inference_subprocess_token = None
         
     def try_start_reading(self):
         '''
@@ -51,50 +66,75 @@ class Meme():
         Вернуть следующий мем
         '''
         assert self.data is not None
-        if self.data_index >= self.data_size:
-            self.request_new_memes()
+        if self.data_index >= self.data_size and not self.request_new_memes(True):
+            return None
+        if self.data_index + self.start_inference_data_offset >= self.data_size:
+            self.request_new_memes(False)
         result = self.data.iloc[self.data_index, 0]
         self.data_index += 1
         return result
     
-    def get_starting_with(self, starting_text):
+    def get_user_text_meme_process(self, starting_text):
         '''
-        Вернуть следующий мем
+        Создать процесс генерации мема по пользовательскому начальному тексту
         '''
+        expected_token = self.owner.subprocess_counter
+        temp_params_dict_path = './temp_params_dict' + str(expected_token) + '.json'
+        temp_output_path = './temp_output' + str(expected_token) + '.csv'
         path_to_params_dict = self.path_to_model + 'params_dict.json'
         with open(path_to_params_dict, 'r') as f:
             params_dict = json.load(f)
         params_dict['prefix'] = params_dict['prefix'] + starting_text
-        with open('./temp_params_dict.json', 'w') as f:
+        with open(temp_params_dict_path, 'w') as f:
             json.dump(params_dict, f)
         cmd = ['python', 
                'inference.py',
                '--path-to-model-dir=' + self.path_to_model,
-               '--path-to-params-dict=./temp_params_dict.json',
-               '--output-path=./temp_output.csv',
+               '--path-to-params-dict=' + temp_params_dict_path,
+               '--output-path=' + temp_output_path,
                '--n-samples=1',
                '--batch-size=1'
                ]
-        subprocess.Popen(cmd).wait() 
-        data = pd.read_csv('./temp_output.csv', header = 0)
+        token = self.owner.queue_process(cmd)
+        assert expected_token == token
+        return token, temp_params_dict_path, temp_output_path
+        
+    def get_user_text_meme(self, token, temp_params_dict_path, temp_output_path):
+        '''
+        Получить пользовательский мем
+        '''
+        if not self.owner.process_finished(token):
+            return None
+        data = pd.read_csv(temp_output_path, header = 0)
+        os.remove(temp_params_dict_path)
+        os.remove(temp_output_path)
         return data.iloc[0, 0]
 
-    def request_new_memes(self):
+    def request_new_memes(self, loadData: bool) -> bool:
         '''
         Запросить у модели следующий батч мемов
         '''
-        cmd = ['python', 
-               'inference.py',
-               '--path-to-model-dir=' + self.path_to_model,
-               '--path-to-params-dict=' + self.path_to_model + 'params_dict.json',
-               '--output-path=' + self.text_path,
-               '--n-samples=' + str(self.n_samples),
-               '--batch-size=' + str(self.batch_size)
-               ]
-        subprocess.Popen(cmd).wait() 
-        self.data = pd.read_csv(self.text_path, header = 0)
-        self.data_index = 0
-        self.data_size = len(self.data.index)
+        if self.inference_subprocess_token is None:
+            cmd = ['python', 
+                   'inference.py',
+                   '--path-to-model-dir=' + self.path_to_model,
+                   '--path-to-params-dict=' + self.path_to_model + 'params_dict.json',
+                   '--output-path=' + self.text_path,
+                   '--n-samples=' + str(self.n_samples),
+                   '--batch-size=' + str(self.batch_size)
+                   ]
+            self.inference_subprocess_token = self.owner.queue_process(cmd)
+            return False
+        elif not self.owner.process_finished(self.inference_subprocess_token):
+            return False
+        else:
+            if loadData:
+                self.inference_subprocess_token = None
+                self.data = pd.read_csv(self.text_path, header = 0)
+                self.data_index = 0
+                self.data_size = len(self.data.index)
+            return True
+
 
 def fit_text_to_box(text, text_box, font_size, font_cell_ratio):
     '''
@@ -223,9 +263,17 @@ class MemeProvider():
         self.lock = threading.Lock()
         self.memes = []
         for meme_config in config:
-            self.memes.append(Meme(meme_config))
+            self.memes.append(Meme(meme_config, self))
         assert len(self.memes) > 0
-        max_starting_text_length = 50
+        
+        self.max_starting_text_length = USER_STARTING_TEXT_MAX_LENGTH
+
+        self.subprocess_counter = 0
+        self.subprocesses = {}
+        self.subprocesses_queue = []
+        
+        self.running = True
+        self.run_subprocesses()
         
     def split_into_boxes(self, text):
         '''
@@ -258,32 +306,95 @@ class MemeProvider():
         img.save('./temp.jpg')
         return open('./temp.jpg', 'rb')
     
+    def run_subprocesses(self):
+        owner = self
+        def run_in_thread(owner):
+            token = None
+            while owner.running:
+                with owner.lock:
+                    if len(owner.subprocesses_queue) > 0:
+                        token = owner.subprocesses_queue.pop(0)
+                    else:
+                        token = None
+                if token is None:
+                    time.sleep(0.05)
+                else:
+                    with owner.lock:
+                        proc = subprocess.Popen(owner.subprocesses[token][1])
+                        owner.subprocesses[token] = (1, proc)
+                    proc.wait()
+                    with owner.lock:
+                        owner.subprocesses[token] = (2, None)
+            return
+        thread = threading.Thread(target=run_in_thread, args=(owner,))
+        thread.start()
+        return
+    
+    def queue_process(self, cmd):
+        '''
+        Зарегистрировать процесс.
+        Принимает параметры процесса.
+        Возвращает токен процесса.
+        '''
+        with self.lock:
+            token = self.subprocess_counter
+            self.subprocess_counter += 1
+            self.subprocesses_queue.append(token)
+            self.subprocesses[token] = (0, cmd)
+            return token
+
+
+    def cancel_process(self, token) -> bool:
+        '''
+        Отменить выполнение процесса в очереди
+        '''
+        with self.lock:
+            for i in len(self.subprocesses_queue):
+                if self.subprocesses_queue[i] == token:
+                    self.subprocesses_queue.pop(token)
+                    self.subprocesses[token] = (2, None)
+                    return True
+            return False
+            
+    def process_finished(self, token):
+        '''
+        Проверить, что процесс завершен
+        '''
+        with self.lock:
+            return token not in self.subprocesses or self.subprocesses[token][0] == 2
+        
+    
     def get_next(self):
         '''
         Получить следующий мем
         '''
-        with self.lock:
+        start_time = time.time()
+        while MEME_REQUEST_TIMEOUT > time.time() - start_time:
             meme = self.memes[randrange(len(self.memes))]
-            text = self.split_into_boxes(meme.get_next())
-            img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
-                                            meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
-            while not img:
-                text = self.split_into_boxes(meme.get_next())
+            text = meme.get_next()
+            if text is not None:
+                text = self.split_into_boxes(text)
+            if text is not None:
                 img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
                                                 meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
-            return img
-        
+                if img is not None:
+                    return img
+            time.sleep(0.1)
+        return None
+
+
     def get_starting_with(self, starting_text):
         '''
         Получить один мем на основе начала его текста
         '''
-        with self.lock:
-            meme = self.memes[randrange(len(self.memes))]
-            text = self.split_into_boxes(meme.get_starting_with(starting_text))
-            img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
+        start_time = time.time()
+        meme = self.memes[randrange(len(self.memes))]
+        token, temp_params_dict_path, temp_output_path = meme.get_user_text_meme_process(starting_text)
+        while MEME_REQUEST_TIMEOUT > time.time() - start_time:
+            text = meme.get_user_text_meme(token, temp_params_dict_path, temp_output_path)
+            if text is not None:
+                text = self.split_into_boxes(text)
+                return self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
                                             meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
-            while not img:
-                text = self.split_into_boxes(meme.get_starting_with(starting_text))
-                img = self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
-                                                meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
-            return img
+        self.cancel_process(token)        
+        return None

@@ -53,8 +53,14 @@ def post_meme(context):
     chat_id = job_context['chat_id']
     meme_provider = job_context['meme_provider']
     img = meme_provider.get_next()
-    context.bot.send_photo(chat_id, img) 
-
+    try:
+        if img is None:
+            context.bot.send_message(chat_id, 'Не удалось получить мем: новые мемы в процессе генерации') 
+        else:
+            context.bot.send_photo(chat_id, img)
+    except Exception as e:
+        job.schedule_removal()
+        raise e
 
 def remove_job_if_exists(name, context):
     current_jobs = context.job_queue.get_jobs_by_name(name)
@@ -103,7 +109,10 @@ def on_post_meme_once_pressed(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     meme_provider = context.dispatcher.user_data['meme_provider']
     img = meme_provider.get_next()
-    context.bot.send_photo(chat_id, img)
+    if img is None:
+        context.bot.send_message(chat_id, 'Не удалось получить мем: новые мемы в процессе генерации') 
+    else:
+        context.bot.send_photo(chat_id, img)
     return BOT_STATE_INITIAL
 
 
@@ -124,14 +133,17 @@ def is_english(text):
 def generate_meme_by_starting(update: Update, context: CallbackContext) -> None:
     text = update.message.text
     meme_provider = context.dispatcher.user_data['meme_provider']
-    if len(text) < meme_provider.max_starting_text_length:
+    if len(text) > meme_provider.max_starting_text_length:
         update.message.reply_text('Ограничение на длину начального текста мема ' + str(meme_provider.max_starting_text_length))
     elif not is_english(text):
         update.message.reply_text('Допустим только английский текст')
     else:
         chat_id = update.message.chat_id
         img = meme_provider.get_starting_with(text.upper())
-        context.bot.send_photo(chat_id, img)
+        if img is None:
+            context.bot.send_message(chat_id, 'Не удалось сгенерировать мем по тексту"{0}"'.format(text)) 
+        else:
+            context.bot.send_photo(chat_id, img)
     return BOT_STATE_INITIAL
 
 
@@ -176,6 +188,7 @@ def main():
     # SIGABRT. This should be used most of the time, since start_polling() is
     # non-blocking and will stop the bot gracefully.
     updater.idle()
+    meme_provider.running = False
 
 if __name__ == '__main__':
     main()
