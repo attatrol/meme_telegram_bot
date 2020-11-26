@@ -126,7 +126,7 @@ def split_text_ex(lengths, line_count, max_line_count, min_line_count):
         if length_sum < min_line_count:
             min_line_count = length_sum
         return ([lengths], (max_line_count, min_line_count))
-    for i in range(1, len(lengths) - line_count):
+    for i in range(1, len(lengths) - line_count + 2):
         first_line_len = i - 1 # пробелы
         for j in range(i):
             first_line_len +=lengths[j][1]
