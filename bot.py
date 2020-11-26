@@ -48,7 +48,6 @@ def start(update: Update, context: CallbackContext) -> None:
 
 
 def post_meme(context):
-    print("post_meme")
     job = context.job
     job_context = job.context
     chat_id = job_context['chat_id']
@@ -79,7 +78,6 @@ def set_timer(update: Update, context: CallbackContext) -> None:
             'chat_id': chat_id,
             'meme_provider': context.dispatcher.user_data['meme_provider']
             }
-        print(job_context)
         context.job_queue.run_repeating(post_meme, due, context=job_context, name=str(chat_id))
 
         text = 'Постинг запущен'
