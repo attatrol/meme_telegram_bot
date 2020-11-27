@@ -26,7 +26,7 @@ USER_STARTING_TEXT_MAX_LENGTH = 50
 # число попыток получить мем на один запрос
 MAX_MEME_GET_TRIES = 3
 # максимальное время на реквест мема, секунд
-MEME_REQUEST_TIMEOUT = 18
+MEME_REQUEST_TIMEOUT = 24
 
 class Meme():
     def __init__(self, config, owner):
@@ -395,5 +395,7 @@ class MemeProvider():
                 text = self.split_into_boxes(text)
                 return self.add_text_to_template(meme.template_path, text, meme.text_boxes, meme.font_path, \
                                             meme.max_font_size, meme.min_font_size, meme.font_cell_ratio)
-        self.cancel_process(token)        
+            time.sleep(0.1)
+        self.cancel_process(token)
+        print("get_starting_with timeout")        
         return None
