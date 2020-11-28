@@ -45,10 +45,10 @@
         "template_path":"./waiting_skeleton/template.jpg",
         "text_boxes":[
             [
-                15, 5, 268, 120
+                15, 15, 470, 120
             ],
             [
-                15, 283, 268, 398
+                15, 370, 470, 485
             ]
         ],
         "min_font_size":30,
